@@ -1,4 +1,4 @@
-utput "kubeconfig" { value = data.template_file.kubeconfig.rendered }
+output "kubeconfig" { value = data.template_file.kubeconfig.rendered }
 
 locals {
   cluster_name    = "k8s-${random_id.cluster.hex}"
