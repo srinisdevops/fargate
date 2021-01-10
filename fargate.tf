@@ -5,6 +5,21 @@ locals {
   cluster_version = "1.18"
   region          = "us-east-1"
   base_domain = "designcloudservices.com"
+  ingress_gateway_annotations = {
+  "controller.service.externalTrafficPolicy"        = "Local",
+  "controller.service.type"                         = "NodePort",
+  "controller.config.server-tokens"                 = "false",
+  "controller.config.use-proxy-protocol"            = "false",
+  "controller.config.compute-full-forwarded-for"    = "true",
+  "controller.config.use-forwarded-headers"         = "true",
+  "controller.metrics.enabled"                      = "true", 
+  "controller.autoscaling.maxReplicas"              = "1", 
+  "controller.autoscaling.minReplicas"              = "1", 
+  "controller.autoscaling.enabled"                  = "true", 
+  "controller.publishService.enabled"               = "true", 
+  "serviceAccount.create"                           = "true", 
+  "rbac.create"                                     = "true" 
+  }
 }
 resource "random_id" "cluster" {
   byte_length = 8
