@@ -12,13 +12,13 @@ locals {
   "controller.config.use-proxy-protocol"            = "false",
   "controller.config.compute-full-forwarded-for"    = "true",
   "controller.config.use-forwarded-headers"         = "true",
-  "controller.metrics.enabled"                      = "true", 
-  "controller.autoscaling.maxReplicas"              = "1", 
-  "controller.autoscaling.minReplicas"              = "1", 
-  "controller.autoscaling.enabled"                  = "true", 
-  "controller.publishService.enabled"               = "true", 
-  "serviceAccount.create"                           = "true", 
-  "rbac.create"                                     = "true" 
+  "controller.metrics.enabled"                      = "true",
+  "controller.autoscaling.maxReplicas"              = "1",
+  "controller.autoscaling.minReplicas"              = "1",
+  "controller.autoscaling.enabled"                  = "true",
+  "controller.publishService.enabled"               = "true",
+  "serviceAccount.create"                           = "true",
+  "rbac.create"                                     = "true"
   }
 }
 resource "random_id" "cluster" {
@@ -28,7 +28,8 @@ provider "aws" {
   # We need at least 3.16.0 because it fixes a problem with creating/deleting
   # Fargate profiles in parallel. See this issue for more information:
   # https://github.com/hashicorp/terraform-provider-aws/issues/13372#issuecomment-729689441
-  version = "~> 3.16.0"
+  # version = "~> 3.16.0"
+  version = "~> 2.67.0"
   region  = local.region
 }
 
@@ -59,7 +60,8 @@ module "vpc" {
 
 module "eks" {
   source          = "terraform-aws-modules/eks/aws"
-  version         = "13.2.1"
+  # version         = "13.2.1"
+  version         = "12.1.0"
   cluster_name    = local.cluster_name
   cluster_version = local.cluster_version
   vpc_id          = module.vpc.aws_vpc_id
@@ -199,9 +201,10 @@ provider "helm" {
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.main.certificate_authority[0].data)
     token                  = data.aws_eks_cluster_auth.main.token
     load_config_file       = false
-  }  
-  version = "~> 1.2"  
-}
+    config_path            = "./kubeconfig_${module.eks.cluster_id}"
+  }
+  version = "~> 1.2"
+  }
 
 data "aws_region" "current" {}
 
@@ -223,9 +226,9 @@ module "aws_load_balancer_controller" {
 
 
 
-# ---------------------------------------------------------
-# Provision the Ingress Controller using Helm
-# ---------------------------------------------------------
+# # ---------------------------------------------------------
+# # Provision the Ingress Controller using Helm
+# # ---------------------------------------------------------
 resource "helm_release" "ingress" {
   name = "ingress-nginx"
   chart = "ingress-nginx"
@@ -233,7 +236,7 @@ resource "helm_release" "ingress" {
   # version    = "0.5.2"
 
   namespace = "kube-system"
-  # cleanup_on_fail = "true"
+  cleanup_on_fail = "true"
   atomic = "true"
   # wait = true
   timeout = 600
@@ -276,6 +279,7 @@ resource "helm_release" "ingress" {
     null_resource.coredns_restart_on_fargate ]
 }
 
+
 resource "null_resource" "ingress_connect" {
   # filename = "${path.module}/alb-ingress-connect-nginx.yaml"
   provisioner "local-exec" {
@@ -290,172 +294,104 @@ EOF
     helm_release.ingress
   ]
 }
-
-
-# data "template_file" "ingress" {
-#   template = "${file("${path.module}/templates/alb-ingress-connect-nginx1.yaml")}"
-  
-#   vars = {
-#     cluster_subnets       = module.vpc.subnet_ids
-#   }
-# }
-
-# resource "null_resource" "your_deployment" {
-#   provisioner "local-exec" {
-#     command = "kubectl apply -f -<<EOF\n${data.template_file.ingress.rendered}\nEOF"
-#   }
-# }
-
-
-# resource "kubectl_manifest" "test" {
-#     yaml_body = <<YAML
-# apiVersion: extensions/v1beta1
-# kind: Ingress
-# metadata:
-#   annotations:
-#     #alb.ingress.kubernetes.io/certificate-arn: <CERTIFICATE_ARN>
-#     alb.ingress.kubernetes.io/healthcheck-path: /healthz
-#     alb.ingress.kubernetes.io/scheme: internet-facing
-#     alb.ingress.kubernetes.io/target-type: ip
-#     alb.ingress.kubernetes.io/subnets: ${module.vpc.private_subnets}
-#     kubernetes.io/ingress.class: alb
-#   name: alb-ingress-connect-nginx
-#   namespace: kube-system
-# spec:
-#   rules:
-#     - http:
-#         paths:
-#           - backend:
-#               serviceName: nginx-ingress-controller
-#               servicePort: 8080
-#             path: /*
-# YAML
-
 # -----------------------------------------------------------------
-# SETUP INGRESS ROUTE53 ACM Certificate and DNS Validation
-# -----------------------------------------------------------------
-
-# get externally configured DNS Zone
-# data "aws_route53_zone" "zone" {
-#   name = local.base_domain
-#   depends_on = [module.eks , module.vpc , module.aws_load_balancer_controller ]
-# }
-
-# data "kubernetes_service" "ingress" {
-#   metadata {
-#     name = "${local.cluster_name}-ingress"
-#     namespace = "kube-system"
-#   }
-
-#   depends_on = [module.eks , module.vpc , module.aws_load_balancer_controller ]
-# }
-
-# create base domain for EKS Cluster
-# data "kubernetes_ingress" "ingress" {
-#   metadata {
-#     # name = join("-", [helm_release.ingress.chart, helm_release.ingress.name])
-#     name = "${local.cluster_name}-ingress"
-#     namespace = "kube-system"
-#   }
-#   depends_on = [module.eks , module.vpc , module.aws_load_balancer_controller]
-
-# }
-
-# data "aws_elb_hosted_zone_id" "elb_zone_id" {}
-
-# resource "aws_route53_record" "www" {
-#   zone_id = data.aws_route53_zone.zone.id
-#   # zone_id = aws_route53_zone.zone.id
-#   name    = local.base_domain
-#   type    = "A"
-
-#   alias {
-#     name                   = data.kubernetes_ingress.ingress.load_balancer_ingress.0.hostname
-#     zone_id                = data.aws_elb_hosted_zone_id.elb_zone_id.id
-#     evaluate_target_health = true
-#   }
-# }
-
-# data "kubernetes_service" "ingress" {
-#   metadata {
-#     # name = join("-", [helm_release.ingress.chart, helm_release.ingress.name])
-#     name = "${aws_load_balancer_controller.aws_iam_role_arn.id}-ingress"
-#     namespace = "kube-system"
-#   }
-# }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# -----------------------------------------------------------------
-# SETUP INGRESS ROUTE53 ACM Certificate and DNS Validation
+# SETUP ROUTE53 ACM Certificate and DNS Validation
 # -----------------------------------------------------------------
 
 # get externally configured DNS Zone 
-# data "aws_route53_zone" "zone" {
-#   name = local.base_domain
-#   depends_on = [module.eks , module.vpc , module.aws_load_balancer_controller ]
-# }
+data "aws_route53_zone" "zone" {
+  name = local.base_domain
+  depends_on = [module.aws_load_balancer_controller, helm_release.ingress, null_resource.ingress_connect]
+}
 
-# data "kubernetes_service" "ingress" {
-#   metadata {
-#     name = "${local.cluster_name}-ingress"
-#     namespace = "kube-system"
-#   }
+# Create Hosted Zone for Cluster specific Subdomain name
+resource "aws_route53_zone" "cluster" {
+  name = "${local.cluster_name}.${local.base_domain}"
 
-#   depends_on = [module.eks , module.vpc , module.aws_load_balancer_controller ]
-# }
+  tags = {
+    Environment = "${local.cluster_name}"
+  }
+  depends_on = [data.aws_route53_zone.zone]
+}
 
-# create base domain for EKS Cluster
-# data "kubernetes_ingress" "ingress" {
-#   metadata {
-#     # name = join("-", [helm_release.ingress.chart, helm_release.ingress.name])
-#     name = "${local.cluster_name}-ingress"
-#     namespace = "kube-system"
-#   }
-#   depends_on = [module.eks , module.vpc , module.aws_load_balancer_controller]
+# Create the NS record in main domain hosted zone for sub domain hosted zone
+resource "aws_route53_record" "cluster-ns" {
+  zone_id = data.aws_route53_zone.zone.zone_id
+  name    = "${local.cluster_name}.${local.base_domain}"
+  type    = "NS"
+  ttl     = "30"
+  records = aws_route53_zone.cluster.name_servers
 
-# }
+  depends_on = [aws_route53_zone.cluster,
+    data.aws_route53_zone.zone]
+}
 
-# data "aws_elb_hosted_zone_id" "elb_zone_id" {}
+# Create ACM certificate for the sub-domain
+resource "aws_acm_certificate" "cert" {
+  domain_name  = "${local.cluster_name}.${local.base_domain}"
+  # See https://www.terraform.io/docs/providers/aws/r/acm_certificate_validation.html#alternative-domains-dns-validation-with-route-53
+  subject_alternative_names = [
+    "*.${local.cluster_name}.${local.base_domain}"
+  ]
+  validation_method         = "DNS"
+  tags = {
+    Name = "${local.cluster_name}.${local.base_domain}"
+    environment = "${local.cluster_name}"
+  }
+  depends_on = [helm_release.ingress,
+    null_resource.ingress_connect, 
+    aws_route53_record.cluster-ns, 
+  ]
+}
 
-# resource "aws_route53_record" "www" {
-#   zone_id = data.aws_route53_zone.zone.id
-#   # zone_id = aws_route53_zone.zone.id
-#   name    = local.base_domain
-#   type    = "A"
+# Validate the certificate using DNS method
+resource "aws_route53_record" "cert_validation" {
+  name    = aws_acm_certificate.cert.domain_validation_options.0.resource_record_name
+  type    = aws_acm_certificate.cert.domain_validation_options.0.resource_record_type
+  zone_id = aws_route53_zone.cluster.id
+  records = [aws_acm_certificate.cert.domain_validation_options.0.resource_record_value]
+  ttl     = 60
+  depends_on = [
+    aws_route53_record.cluster-ns, 
+    aws_acm_certificate.cert ]
+}
 
-#   alias {
-#     name                   = data.kubernetes_ingress.ingress.load_balancer_ingress.0.hostname
-#     zone_id                = data.aws_elb_hosted_zone_id.elb_zone_id.id
-#     evaluate_target_health = true
-#   }
-# }
+resource "aws_acm_certificate_validation" "cert" {
+  certificate_arn         = aws_acm_certificate.cert.arn
+  validation_record_fqdns = [aws_route53_record.cert_validation.fqdn]  
+}
 
-# data "kubernetes_service" "ingress" {
-#   metadata {
-#     # name = join("-", [helm_release.ingress.chart, helm_release.ingress.name])
-#     name = "${aws_load_balancer_controller.aws_iam_role_arn.id}-ingress"
-#     namespace = "kube-system"
-#   }
-# }
+# Get the Ingress for the ALB
+data "kubernetes_ingress" "ingress" {
+  metadata {
+    name = "alb-ingress-connect-nginx"
+    namespace = "kube-system"
+  }
+
+  depends_on = [module.aws_load_balancer_controller, 
+    helm_release.ingress, 
+    null_resource.ingress_connect, 
+    aws_acm_certificate.cert,
+    aws_acm_certificate_validation.cert ]
+}
+
+# Get the Ingress for the ALB
+data "aws_elb_hosted_zone_id" "elb_zone_id" {}
+
+# Create C-Name record in sub-domain hosted zone for the ALB
+resource "aws_route53_record" "www" {
+  zone_id = aws_route53_zone.cluster.id
+  name    = "${local.cluster_name}.${local.base_domain}"
+  type    = "A"
+
+  alias {
+    name                   = data.kubernetes_ingress.ingress.load_balancer_ingress.0.hostname
+    zone_id                = data.aws_elb_hosted_zone_id.elb_zone_id.id
+    evaluate_target_health = true
+  }
+  depends_on = [ aws_acm_certificate.cert,
+    aws_acm_certificate_validation.cert ]
+}
+
+output "ingress_url" { value = data.kubernetes_ingress.ingress.load_balancer_ingress.0.hostname }
+output "ingress_zone" { value = data.aws_route53_zone.zone.id }
